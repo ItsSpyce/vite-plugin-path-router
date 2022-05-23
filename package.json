@@ -1,0 +1,12 @@
+{
+  "name": "@itsspyce/vite-path-router",
+  "version": "1.0.0",
+  "private": true,
+  "author": {
+    "name": "ItsSpyce",
+    "url": "https://github.com/ItsSpyce"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "lib": [
+      "ESNext"
+    ],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "preserveSymlinks": true,
+    "strict": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "noImplicitAny": true,
+    "resolveJsonModule": false,
+    "isolatedModules": true,
+    "noEmit": false,
+    "rootDir": "./lib",
+    "outDir": "./dist",
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "lib"
+  ],
+  "exclude": [
+    "lib/client"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
+    "jsx": "preserve",
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "outDir": "./client",
+    "rootDir": "./lib/client",
+    "inlineSourceMap": true
+  },
+  "include": [
+    "lib/client"
+  ],
+  "exclude": []
+}
