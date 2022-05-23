@@ -1,6 +1,5 @@
 import {
   type Plugin,
-  createLogger,
   normalizePath,
   transformWithEsbuild,
   type ViteDevServer,
@@ -41,7 +40,6 @@ const resolvedRoutesVirtualModule = '\0' + routesVirtualModule;
 
 export default function pathRouter(opts?: PathRouterOpts): Plugin {
   debug('Setting up plugin');
-  const logger = createLogger('silent', { allowClearScreen: true });
   const pattern = opts?.include || ['**/pages/**/*.{j,t}sx'];
   const transform = opts?.transform;
   let pathList: PathList;
@@ -55,7 +53,7 @@ export default function pathRouter(opts?: PathRouterOpts): Plugin {
       server = _server;
       debug('Server configured');
     },
-    async buildStart(buildsOpts) {
+    async buildStart() {
       try {
         const pageLocations = await fg(pattern, {
           stats: false,
@@ -85,8 +83,20 @@ export default function pathRouter(opts?: PathRouterOpts): Plugin {
       }
     },
     async resolveId(id) {
-      if (id === routesVirtualModule) {
+      const { moduleId, pageId } = parseModuleId(id);
+      if (moduleId === routesVirtualModule) {
         return resolvedRoutesVirtualModule;
+      }
+      if (moduleId === '/vite-plugin-react-path-router/pages' && pageId) {
+        try {
+          const absoluteFilename = normalizePath(
+            path.join(server.config.root, pageId)
+          );
+          return absoluteFilename;
+        } catch (err) {
+          debug(`Failed to load page ${pageId}: ${err}`);
+          return null;
+        }
       }
     },
     async load(id) {
@@ -94,9 +104,9 @@ export default function pathRouter(opts?: PathRouterOpts): Plugin {
       if (moduleId === resolvedRoutesVirtualModule) {
         debug(`Fetching dynamic module ${id}`);
         return `
-        export const pathTree = ${JSON.stringify(pathTree || {})};
-        export const pathList = ${JSON.stringify(pathList || {})};
-        export const pageLocations = ${JSON.stringify(pageLocations || [])};
+          export const pathTree = ${JSON.stringify(pathTree || {})};
+          export const pathList = ${JSON.stringify(pathList || {})};
+          export const pageLocations = ${JSON.stringify(pageLocations || [])};
         `;
       }
       if (moduleId === '/vite-plugin-react-path-router/pages' && pageId) {

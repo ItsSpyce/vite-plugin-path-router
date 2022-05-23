@@ -1,3 +1,4 @@
+import '../App.css';
 import logo from '../logo.svg';
 
 const HomePage = () => (
