@@ -1,5 +1,14 @@
-import { type Page } from 'vite-plugin-react-path-router/client';
+import { type Page, NotFound } from 'vite-page-router';
 
-const TopicPage: Page = ({ params }) => <h1>Topic: {params.topic}</h1>;
+type TopicPageParams = {
+  topic: 'A' | 'B';
+};
+
+const TopicPage: Page<TopicPageParams> = ({ params }) => (
+  <>
+    {params.topic !== 'A' && <NotFound />}
+    {params.topic === 'A' && <h1>We passed the topic test: {params.topic}</h1>}
+  </>
+);
 
 export default TopicPage;
