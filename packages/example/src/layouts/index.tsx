@@ -9,6 +9,9 @@ const Layout = ({ children }: React.PropsWithChildren<{}>) => (
           <Link to="/">Home</Link>
         </li>
         <li>
+          <Link to="/about">About</Link>
+        </li>
+        <li>
           <Link to="/dynamic-route">Dynamic Route</Link>
         </li>
         <li>
