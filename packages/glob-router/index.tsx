@@ -6,11 +6,9 @@ import {
   useLocation,
   matchPath,
   createRoutesFromChildren,
-  Routes,
   type RoutesProps,
   type Params,
   type RouteObject,
-  type Location,
   type PathMatch,
 } from 'react-router-dom';
 import _debug from 'debug';
@@ -42,11 +40,6 @@ type PathRouteComponents = {
     React.PropsWithChildren<{}>
   >;
 };
-
-interface PageModule {
-  default: React.ComponentType<PageProps<Params>>;
-  authenticate?: GetAuthenticate;
-}
 
 interface DynamicImport {
   (): Promise<any>;
@@ -213,7 +206,7 @@ function LayoutContainer({ children }: React.PropsWithChildren<{}>) {
 
 export interface PathRoutesProps<TSession> extends RoutesProps {
   pages: GlobImport;
-  session: TSession;
+  session?: TSession;
 }
 
 export function PathRoutes<TSession extends RouteSession>({
@@ -240,11 +233,13 @@ export function PathRoutes<TSession extends RouteSession>({
 
   return (
     <RouteErrorBoundary>
-      <RoutePatternContext.Provider value={routePattern}>
-        <FileRoutingContext.Provider value={fileRoutingController}>
-          <LayoutContainer>{children}</LayoutContainer>
-        </FileRoutingContext.Provider>
-      </RoutePatternContext.Provider>
+      <RouteSessionContext.Provider value={session || {}}>
+        <RoutePatternContext.Provider value={routePattern}>
+          <FileRoutingContext.Provider value={fileRoutingController}>
+            <LayoutContainer>{children}</LayoutContainer>
+          </FileRoutingContext.Provider>
+        </RoutePatternContext.Provider>
+      </RouteSessionContext.Provider>
     </RouteErrorBoundary>
   );
 }
