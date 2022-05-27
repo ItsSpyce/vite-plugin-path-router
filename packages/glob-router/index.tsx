@@ -1,11 +1,6 @@
-import React, {
-  createContext,
-  PropsWithChildren,
-  useContext,
-  useEffect,
-  useState,
-} from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
+  useNavigate,
   useRoutes,
   useParams,
   useLocation,
@@ -19,8 +14,8 @@ import {
   type PathMatch,
 } from 'react-router-dom';
 import _debug from 'debug';
-//const debug = _debug('path-router');
-const debug = console.log;
+const debug = _debug('path-router');
+//const debug = console.log;
 
 /// Types
 
@@ -71,14 +66,17 @@ export type PageProps<P> = {
 
 export interface RouteSession {}
 
-export interface GetAuthenticate {
-  (session: RouteSession):
-    | Promise<boolean | string | Page | void | undefined>
+export interface GetAuthenticate<TSession = RouteSession> {
+  (session: TSession):
+    | Promise<boolean | string | void | undefined>
     | boolean
     | string
-    | Page
     | void
     | undefined;
+}
+
+export interface AuthorizationProvider {
+  (): RouteSession;
 }
 
 export interface LayoutResultProps extends React.PropsWithChildren<{}> {}
@@ -96,6 +94,7 @@ export interface Page<TParams = Params> {
 //@ts-ignore
 export const FileRoutingContext = createContext<FileRoutingController>();
 export const RoutePatternContext = createContext('/');
+export const RouteSessionContext = createContext<RouteSession>({});
 
 /// Components
 
@@ -138,36 +137,65 @@ export interface PageWrapperProps {
 }
 
 export function PageWrapper({ moduleFn }: PageWrapperProps) {
+  const session = useRouteSession();
+  const navigate = useNavigate();
   const Page = React.lazy(moduleFn);
   const params = useParams();
-  const [mod, setMod] = useState<PageModule | undefined>();
+  const [mayRender, setMayRender] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(true);
   useEffect(() => {
-    moduleFn().then((mod) => {
-      setMod(mod);
-      const { authenticate } = mod;
-    });
+    _loadModule();
   }, []);
   useEffect(() => {}, []);
 
   return (
     <RouteErrorBoundary>
-      <React.Suspense>
-        <Page params={params} />
-      </React.Suspense>
+      {mayRender && isAuthorized && (
+        <React.Suspense>
+          <Page params={params} />
+        </React.Suspense>
+      )}
+      {mayRender && !isAuthorized && <NotAuthorized />}
     </RouteErrorBoundary>
   );
+
+  async function _loadModule() {
+    const mod = await moduleFn();
+    const authenticate: GetAuthenticate = mod.authenticate;
+    if (!authenticate) {
+      setMayRender(true);
+      return;
+    }
+    const authResult = await authenticate(session);
+    if (typeof authResult === 'string') {
+      // safely set just in case even though a navigate is occuring
+      setIsAuthorized(false);
+      navigate(authResult);
+    } else if (authResult === true) {
+      setMayRender(true);
+    } else {
+      // 'false' and 'undefined' are looked at as the same here
+      setIsAuthorized(false);
+      setMayRender(true);
+    }
+  }
 }
 
-export interface NotFoundProps {}
+export function NotFound() {
+  return React.createElement(usePathComponent('notFound'));
+}
 
-export function NotFound(_: NotFoundProps) {
-  const NotFoundComponent = usePathComponent('notFound');
+export function NotAuthorized() {
+  return React.createElement(usePathComponent('notAuthorized'));
+}
 
-  return <NotFoundComponent />;
+export function Layout({ children }: React.PropsWithChildren<{}>) {
+  return React.createElement(usePathComponent('layout'), {
+    children,
+  });
 }
 
 function LayoutContainer({ children }: React.PropsWithChildren<{}>) {
-  const CurrentLayout = usePathComponent('layout');
   const fileRoutingController = useContext(FileRoutingContext);
   const [routes, setRoutes] = useState<RouteObject[]>([]);
   const renderableRoutes = useRoutes(routes);
@@ -178,32 +206,22 @@ function LayoutContainer({ children }: React.PropsWithChildren<{}>) {
     });
   }, [fileRoutingController]);
 
-  useEffect(() => {
-    console.log(routes);
-  }, [routes]);
-
   return (
-    <>
-      {routes.length == 0 ? (
-        <></>
-      ) : (
-        <CurrentLayout>{renderableRoutes}</CurrentLayout>
-      )}
-    </>
+    <>{routes.length == 0 ? <></> : <Layout>{renderableRoutes}</Layout>}</>
   );
 }
 
-export interface PathRoutesProps extends RoutesProps {
+export interface PathRoutesProps<TSession> extends RoutesProps {
   pages: GlobImport;
-  fallbackLayout?: GetLayout;
+  session: TSession;
 }
 
-export function PathRoutes({
+export function PathRoutes<TSession extends RouteSession>({
   children,
   pages,
   location: _location,
-  fallbackLayout,
-}: PathRoutesProps) {
+  session,
+}: PathRoutesProps<TSession>) {
   const location = useLocation();
   const [routePattern, setRoutePattern] = useState(
     typeof _location === 'string' ? _location : _location?.pathname || '/'
@@ -240,21 +258,14 @@ export function useRoutePattern() {
 export function usePathComponent(pathComponentType: PathRouteComponentType) {
   const routePattern = useRoutePattern();
   const fileRoutingController = useContext(FileRoutingContext);
-  const [pathComponent, setPathComponent] = useState(() =>
-    fileRoutingController.getPathComponentFor(routePattern, pathComponentType)
+  return fileRoutingController.getPathComponentFor(
+    routePattern,
+    pathComponentType
   );
+}
 
-  useEffect(() => {
-    const newPathComponent = fileRoutingController.getPathComponentFor(
-      routePattern,
-      pathComponentType
-    );
-    if (newPathComponent !== setPathComponent) {
-      setPathComponent(() => newPathComponent);
-    }
-  }, [routePattern, pathComponentType]);
-
-  return pathComponent;
+function useRouteSession() {
+  return useContext(RouteSessionContext);
 }
 
 /// Utils

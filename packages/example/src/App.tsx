@@ -6,10 +6,7 @@ function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <PathRoutes
-          pages={import.meta.glob('./**/pages/**/*.(t|s)sx')}
-          fallbackLayout={({ children }) => <div id="layout">{children}</div>}
-        >
+        <PathRoutes pages={import.meta.glob('./**/pages/**/*.(t|s)sx')}>
           <Route
             path="dynamic-route"
             element={<h1>This is a dynamic route!</h1>}
