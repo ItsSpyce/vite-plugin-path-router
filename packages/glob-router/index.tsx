@@ -11,6 +11,7 @@ import {
   useLocation,
   matchPath,
   createRoutesFromChildren,
+  Routes,
   type RoutesProps,
   type Params,
   type RouteObject,
@@ -24,19 +25,27 @@ const debug = console.log;
 /// Types
 
 interface MatchFunction {
-  (route: string): PathMatch | null;
+  (routePattern: string): PathMatch | null;
 }
 
-type PathRouteComponentMap = {
-  [routePattern: string]: PathRouteComponent;
+type RoutePatternEntry = {
+  match: MatchFunction;
+  components?: PathRouteComponents;
+  route: RouteObject;
+  filename: string;
+  path: string;
 };
 
-type MatcherMap = {
-  [routePattern: string]: MatchFunction;
+type RoutePatternContainer = {
+  [routePattern: string]: RoutePatternEntry;
 };
 
-type RoutesMap = {
-  [filename: string]: RouteObject;
+type PathRouteComponentType = 'notFound' | 'notAuthorized' | 'error' | 'layout';
+
+type PathRouteComponents = {
+  [type in PathRouteComponentType]: React.ComponentType<
+    React.PropsWithChildren<{}>
+  >;
 };
 
 interface PageModule {
@@ -82,17 +91,11 @@ export interface Page<TParams = Params> {
   (props: PageProps<TParams>): React.ReactElement;
 }
 
-type PathRouteComponentType = 'notFound' | 'notAuthorized' | 'error' | 'layout';
-
-type PathRouteComponent = {
-  [type in PathRouteComponentType]: DynamicImport;
-};
-
 /// Contexts
 
 //@ts-ignore
 export const FileRoutingContext = createContext<FileRoutingController>();
-export const PathRouteContext = createContext('/');
+export const RoutePatternContext = createContext('/');
 
 /// Components
 
@@ -155,31 +158,38 @@ export function PageWrapper({ moduleFn }: PageWrapperProps) {
   );
 }
 
-function EmptyPageComponent({ children }: PropsWithChildren<{}>) {
-  return <>{children}</>;
-}
-
 export interface NotFoundProps {}
 
 export function NotFound(_: NotFoundProps) {
   const NotFoundComponent = usePathComponent('notFound');
 
-  return (
-    <React.Suspense>
-      <NotFoundComponent />
-    </React.Suspense>
-  );
+  return <NotFoundComponent />;
 }
 
-interface LayoutContainerProps extends React.PropsWithChildren<{}> {}
-
-function LayoutContainer({ children }: LayoutContainerProps) {
+function LayoutContainer({ children }: React.PropsWithChildren<{}>) {
   const CurrentLayout = usePathComponent('layout');
+  const fileRoutingController = useContext(FileRoutingContext);
+  const [routes, setRoutes] = useState<RouteObject[]>([]);
+  const renderableRoutes = useRoutes(routes);
+
+  useEffect(() => {
+    fileRoutingController.buildRoutes().then((pathRoutes) => {
+      setRoutes([...pathRoutes, ...createRoutesFromChildren(children)]);
+    });
+  }, [fileRoutingController]);
+
+  useEffect(() => {
+    console.log(routes);
+  }, [routes]);
 
   return (
-    <React.Suspense>
-      <CurrentLayout>{children}</CurrentLayout>
-    </React.Suspense>
+    <>
+      {routes.length == 0 ? (
+        <></>
+      ) : (
+        <CurrentLayout>{renderableRoutes}</CurrentLayout>
+      )}
+    </>
   );
 }
 
@@ -195,68 +205,63 @@ export function PathRoutes({
   fallbackLayout,
 }: PathRoutesProps) {
   const location = useLocation();
-  const [routePath, setRoutePath] = useState(
+  const [routePattern, setRoutePattern] = useState(
     typeof _location === 'string' ? _location : _location?.pathname || '/'
   );
   const [fileRoutingController] = useState(new FileRoutingController(pages));
-  const resolvedRoutes = useRoutes(
-    [
-      ...fileRoutingController.buildRoutes(),
-      ...createRoutesFromChildren(children),
-    ],
-    _location
-  );
 
   useEffect(() => {
-    const newRoutePath = fileRoutingController.getRouteMatch(location.pathname);
-    if (newRoutePath !== routePath) {
-      setRoutePath(newRoutePath);
-      debug(`Route path changed from ${routePath} to ${newRoutePath}`);
+    const newRoutePath = fileRoutingController.getMatchingRoutePattern(
+      location.pathname
+    );
+    if (newRoutePath !== routePattern) {
+      setRoutePattern(newRoutePath);
+      debug(`Route path changed from ${routePattern} to ${newRoutePath}`);
     }
   }, [location.pathname]);
 
   return (
-    <PathRouteContext.Provider value={routePath}>
-      <FileRoutingContext.Provider value={fileRoutingController}>
-        <LayoutContainer>{resolvedRoutes}</LayoutContainer>
-      </FileRoutingContext.Provider>
-    </PathRouteContext.Provider>
+    <RouteErrorBoundary>
+      <RoutePatternContext.Provider value={routePattern}>
+        <FileRoutingContext.Provider value={fileRoutingController}>
+          <LayoutContainer>{children}</LayoutContainer>
+        </FileRoutingContext.Provider>
+      </RoutePatternContext.Provider>
+    </RouteErrorBoundary>
   );
 }
 
 /// Hooks
 
-export function useRoutePath() {
-  return useContext(PathRouteContext);
+export function useRoutePattern() {
+  return useContext(RoutePatternContext);
 }
 
 export function usePathComponent(pathComponentType: PathRouteComponentType) {
-  const routePath = useRoutePath();
+  const routePattern = useRoutePattern();
   const fileRoutingController = useContext(FileRoutingContext);
-  console.log({ routePath, fileRoutingController });
   const [pathComponent, setPathComponent] = useState(() =>
-    fileRoutingController.getPathComponentFor(routePath, pathComponentType)
+    fileRoutingController.getPathComponentFor(routePattern, pathComponentType)
   );
 
   useEffect(() => {
     const newPathComponent = fileRoutingController.getPathComponentFor(
-      routePath,
+      routePattern,
       pathComponentType
     );
     if (newPathComponent !== setPathComponent) {
-      setPathComponent(newPathComponent);
+      setPathComponent(() => newPathComponent);
     }
-  }, [routePath, pathComponentType]);
+  }, [routePattern, pathComponentType]);
 
-  return React.lazy(pathComponent);
+  return pathComponent;
 }
 
 /// Utils
 
-const emptyComponentTypeImport = () =>
-  Promise.resolve({ default: EmptyPageComponent });
+const EmptyComponent = () => <></>;
 
-export function getRouteFromFilename(
+export function getRoutePatternFromPath(
   filename: string,
   opts?: CasingOpts
 ): string {
@@ -302,72 +307,89 @@ function getFilename(path: string, includeExt?: boolean) {
   return path.substring(lastSlash, path.lastIndexOf('.'));
 }
 
-function match(routePattern: string): MatchFunction {
+function createMatch(routePattern: string): MatchFunction {
   const pattern = `${routePattern}`;
   return (route: string) => matchPath(pattern, route);
 }
 
 class FileRoutingController {
-  private _pathRouteComponents: PathRouteComponentMap = {};
-  private _matchers: MatcherMap = {};
-  private _routes: RoutesMap = {};
+  private _routePatternContainer: RoutePatternContainer = {};
   private _isBuilt = false;
 
   constructor(private _globImports: GlobImport) {}
 
-  buildRoutes(): RouteObject[] {
-    if (this._isBuilt) {
-      return Object.values(this._routes);
-    }
-    const routes: Record<string, RouteObject> = {};
-    for (const [path, importFn] of Object.entries(this._globImports)) {
-      const routePath = getRouteFromFilename(path);
-      const filename = getFilename(path);
-      if (reservedPaths.includes(filename as PathRouteComponentType)) {
-        continue;
+  async buildRoutes(): Promise<RouteObject[]> {
+    if (!this._isBuilt) {
+      for (const [path, moduleFn] of Object.entries(this._globImports)) {
+        const routePattern = getRoutePatternFromPath(path);
+        const filename = getFilename(path);
+
+        if (
+          reservedPaths.includes(filename as PathRouteComponentType) ||
+          !!this._routePatternContainer[routePattern]
+        ) {
+          continue;
+        }
+
+        const layout = await this.findNearestComponentType(path, 'layout');
+        const error = await this.findNearestComponentType(path, 'error');
+        const notFound = await this.findNearestComponentType(path, 'notFound');
+        const notAuthorized = await this.findNearestComponentType(
+          path,
+          'notAuthorized'
+        );
+
+        const components = {
+          layout,
+          error,
+          notFound,
+          notAuthorized,
+        };
+        const match = createMatch(routePattern);
+        const route: RouteObject = {
+          element: React.createElement(PageWrapper, { moduleFn }),
+          path: routePattern === '' ? '/' : routePattern,
+        };
+
+        this._routePatternContainer[routePattern] = {
+          path,
+          filename,
+          components,
+          match,
+          route,
+        };
       }
-      if (!!routes[routePath]) {
-        continue;
-      }
-      const pathRouteComponent: PathRouteComponent = {
-        layout: this.findNearestComponentType(path, 'layout'),
-        error: this.findNearestComponentType(path, 'error'),
-        notFound: this.findNearestComponentType(path, 'notFound'),
-        notAuthorized: this.findNearestComponentType(path, 'notAuthorized'),
-      };
-      this._pathRouteComponents[routePath] = pathRouteComponent;
-      routes[routePath] = {
-        element: React.createElement(PageWrapper, { moduleFn: importFn }),
-        path: routePath === '' ? '/' : routePath,
-      };
-      this._matchers[routePath] = match(routePath);
+      this._isBuilt = true;
     }
-    this._isBuilt = true;
-    this._routes = routes;
-    return Object.values(routes);
+    return Object.values(this._routePatternContainer).map((rp) => rp.route);
   }
 
-  getRouteMatch(route: string) {
-    for (const [routePath, matcher] of Object.entries(this._matchers)) {
-      if (matcher(route)) {
-        return routePath;
+  getMatchingRoutePattern(route: string) {
+    for (const [routePattern, { match }] of Object.entries(
+      this._routePatternContainer
+    )) {
+      if (match(route)) {
+        return routePattern;
       }
     }
     return '/';
   }
 
   getPathComponentFor(
-    routeMatch: string,
+    routePattern: string,
     pathRouteComponentType: PathRouteComponentType
   ) {
-    const match = this._pathRouteComponents[routeMatch];
-    if (match && match[pathRouteComponentType]) {
-      return match[pathRouteComponentType];
+    const components = this._routePatternContainer[routePattern]?.components;
+    if (components && components[pathRouteComponentType]) {
+      return components[pathRouteComponentType];
     }
-    return this._pathRouteComponents['/'][pathRouteComponentType]!;
+    return (
+      this._routePatternContainer['/']?.components?.[pathRouteComponentType] ||
+      EmptyComponent
+    );
   }
 
-  private findNearestComponentType(
+  private async findNearestComponentType(
     relativeFilename: string,
     pathRouteComponentType: PathRouteComponentType
   ) {
@@ -383,9 +405,13 @@ class FileRoutingController {
       );
       if (match) {
         debug(`Match found for ${relativeFilename} at ${match}`);
-        return this._globImports[match];
+        return await resolveImport(this._globImports[match]);
       }
     } while (currentDir !== (currentDir = getParentDir(relativeFilename)));
-    return emptyComponentTypeImport;
+    return EmptyComponent;
   }
+}
+
+async function resolveImport(importFn: DynamicImport) {
+  return (await importFn()).default;
 }
